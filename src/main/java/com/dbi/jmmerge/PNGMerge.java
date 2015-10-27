@@ -16,8 +16,10 @@ import javax.imageio.ImageIO;
  * @author nnels2
  */
 public class PNGMerge {
-  public static BufferedImage mergeImages(File topImage, File bottomImage) throws IOException
+  public static BufferedImage mergeImages(File newImage, File oldImage) throws IOException
   {
+    File topImage = newImage.lastModified()>oldImage.lastModified()?newImage:oldImage;
+    File bottomImage = newImage.lastModified()>oldImage.lastModified()?oldImage:newImage;
     BufferedImage top = ImageIO.read(topImage);
     BufferedImage bottom = ImageIO.read(bottomImage);
     BufferedImage merged = new BufferedImage(bottom.getWidth(), bottom.getHeight(), BufferedImage.TYPE_INT_ARGB);

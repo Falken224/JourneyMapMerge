@@ -24,6 +24,8 @@ import javax.imageio.ImageIO;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
+import org.slf4j.LoggerFactory;
+import org.slf4j.Logger;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -44,6 +46,8 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 public class MainController {
 
+  private Logger LOG = LoggerFactory.getLogger(MainController.class);
+  
   @Value("#{systemProperties['jmmerge.data.dir'] ?: '/var/data/jmmerge'}")
   private String storageDir;
   
@@ -132,49 +136,10 @@ public class MainController {
   {
     Map ret = new HashMap();
     ret.put("server",server);
-    Map<String,File> tempFiles = new HashMap<>();
+    Map<String,File> tempFiles = null;
     try
     {
-      String baseDirName=null;
-      //First catalog it, to see what we've got.
-      File temp = File.createTempFile("map", null);
-      file.transferTo(temp);
-      ZipInputStream zipin = new ZipInputStream(new FileInputStream(temp));
-      ZipEntry entry = zipin.getNextEntry();
-      byte[] buf = new byte[1024];
-      do
-      {
-          FileOutputStream out = null;
-          String filename = entry.getName();
-          if(isJunkEntry(entry.getName()) || entry.isDirectory())
-          {
-            continue;
-          }
-          try
-          {
-            tempFiles.put(filename,File.createTempFile(filename, null));
-            tempFiles.get(filename).deleteOnExit();
-            out = new FileOutputStream(tempFiles.get(filename));
-            int len = 0;
-            while ((len = zipin.read(buf)) > 0)
-            {
-                out.write(buf, 0, len);
-            }
-          }
-          finally
-          {
-            // we must always close the output file
-            if(out!=null) out.close();
-          }
-      }while((entry = zipin.getNextEntry()) != null);
-      baseDirName = tryToGuessBaseDir(tempFiles.keySet());
-      if(baseDirName!=null)
-      {
-        for(String key : new HashSet<String>(tempFiles.keySet()))
-        {
-          tempFiles.put(key.replace(baseDirName+"/",""), tempFiles.remove(key));
-        }
-      }
+      tempFiles = this.extractFilesFromZipUpload(file);
     }catch (IOException ex)
     {
       ret.put("error", "There was an error parsing the zip file. -- "+ex.getMessage());
@@ -189,8 +154,8 @@ public class MainController {
     Map<String,File> existingFiles = loadServerFiles(null,serverDir);
     List<String> messages = new ArrayList<>();
     ret.put("messages", messages);
-    for(String name : tempFiles.keySet()) {System.out.println("NEW--"+name);}
-    for(String name : existingFiles.keySet()) {System.out.println("EXISTING--"+name);}
+    for(String name : tempFiles.keySet()) {LOG.debug("NEW--"+name);}
+    for(String name : existingFiles.keySet()) {LOG.debug("EXISTING--"+name);}
     for(Map.Entry<String,File> newFile : tempFiles.entrySet())
     {
       if(existingFiles.containsKey(newFile.getKey()))
@@ -200,13 +165,14 @@ public class MainController {
         File newFileHandle = buildFile(serverDir,newFile.getKey().split("/"));
         try
         {
-          FileUtils.copyFile(newFile.getValue(),newFileHandle);
+          FileUtils.copyFile(newFile.getValue(),newFileHandle,true);
         }
         catch(IOException ex)
         {
           messages.add("ERROR!  Could not copy "+newFile.getValue().getAbsolutePath()+" to "+newFileHandle.getAbsolutePath()+" -- "+ex.getMessage());
           ex.printStackTrace();
         }
+        LOG.debug("Last modified date on - "+newFileHandle.getName()+" set to "+newFileHandle.lastModified());
       }
     }
     
@@ -215,9 +181,53 @@ public class MainController {
     return ret;
   }
   
+  private Map<String,File> extractFilesFromZipUpload(MultipartFile file) throws IOException
+  {
+    Map<String,File> ret = new HashMap<>();
+    String baseDirName=null;
+    //First catalog it, to see what we've got.
+    File temp = File.createTempFile("map", null);
+    temp.deleteOnExit();
+    file.transferTo(temp);
+    ZipInputStream zipin = new ZipInputStream(new FileInputStream(temp));
+    ZipEntry entry = zipin.getNextEntry();
+    byte[] buf = new byte[1024];
+    do
+    {
+        FileOutputStream out = null;
+        String filename = entry.getName();
+        if(isJunkEntry(entry.getName()) || entry.isDirectory())
+        {
+          continue;
+        }
+        try
+        {
+          ret.put(filename,File.createTempFile(filename, null));
+          LOG.debug("Incoming timestamp on zip - "+filename+" - "+entry.getTime());
+          ret.get(filename).deleteOnExit();
+          out = new FileOutputStream(ret.get(filename));
+          IOUtils.copy(zipin, out);
+          ret.get(filename).setLastModified(entry.getTime());
+        }
+        finally
+        {
+          // we must always close the output file
+          if(out!=null) out.close();
+        }
+    }while((entry = zipin.getNextEntry()) != null);
+    baseDirName = tryToGuessBaseDir(ret.keySet());
+    if(baseDirName!=null)
+    {
+      for(String key : new HashSet<String>(ret.keySet()))
+      {
+        ret.put(key.replace(baseDirName+"/",""), ret.remove(key));
+      }
+    }
+    return ret;
+  }
+  
   private File buildFile(File base, String[] dirNames)
   {
-    System.out.println("building "+base+" + ");
     File ret = base;
     for(int loop=0; loop<dirNames.length-1; loop++)
     {
@@ -230,21 +240,23 @@ public class MainController {
   
   private void mergeFiles(File newFile, File oldFile)
   {
-    System.out.println("Trying to merge "+newFile);
+    LOG.debug("Trying to merge "+newFile);
     if(newFile.getName().contains(".png"))
     {
-      System.out.println(newFile+" is a PNG!");
+      LOG.debug(newFile+" is a PNG!");
       try
       {
+        long updateTime=newFile.lastModified()>oldFile.lastModified()?newFile.lastModified():oldFile.lastModified();
         ImageIO.write(PNGMerge.mergeImages(newFile, oldFile),"png",oldFile);
+        oldFile.setLastModified(updateTime);
       }catch(IOException ex)
       {
-        System.out.println("Couldn't merge "+newFile.getName()+ " and "+oldFile.getName());
+        LOG.debug("Couldn't merge "+newFile.getName()+ " and "+oldFile.getName());
         ex.printStackTrace();
       }
     } else if(newFile.getName().contains(".json"))
     {
-      System.out.println(newFile+" is a waypoint.");
+      LOG.debug(newFile+" is a waypoint.");
     }
   }
   
@@ -258,19 +270,19 @@ public class MainController {
     
     if(!directory.exists())
     {
-      System.out.println("Warning!  "+directory.getAbsolutePath().toString()+" does not exist!");
+      LOG.warn("Warning!  "+directory.getAbsolutePath().toString()+" does not exist!");
       return ret;
     }
     if(!directory.isDirectory())
     {
       ret.put(directory.getName(), directory);
-      System.out.println("Warning!  "+directory.getAbsolutePath().toString()+" is a file, not a directory!");
+      LOG.warn("Warning!  "+directory.getAbsolutePath().toString()+" is a file, not a directory!");
       return ret;
     }
     
     for(File file : directory.listFiles())
     {
-      if(file.getName().startsWith(".") || isJunkEntry(file.getName())) continue;
+      if(isJunkEntry(file.getName())) continue;
       if(file.isDirectory())
       {
         ret.putAll(loadServerFiles(base+file.getName(),file));
@@ -284,33 +296,17 @@ public class MainController {
   
   private String tryToGuessBaseDir(Set<String> filenames)
   {
-    String baseDirGuess = null;
-    int matchCount = 0;
-    for(String filename : filenames)
-    {
-      if(baseDirGuess==null)
-      {
-        baseDirGuess = filename.split("/")[0];
-        matchCount++;
-      } else {
-        if(filename.split("/")[0].equals(baseDirGuess))
-        {
-          matchCount++;
-        }
-      }
-    }
-    if(matchCount==filenames.size())
-    {
+    final String baseDirGuess = filenames.iterator().next().split("/")[0];
+    if(filenames.stream()
+                .allMatch(name -> name.split("/")[0].equals(baseDirGuess)))
       return baseDirGuess;
-    } else {
-      System.out.println("Only "+matchCount+" out of "+filenames.size()+" started with "+baseDirGuess+".  Not guessing that.");
-    }
     return null;
   }
   
   private boolean isJunkEntry(String path)
   {
     if(path==null) return true;
+    if(path.startsWith(".")) return true;
     if(path.startsWith("__MACOSX")) return true;
     return false;
   }
