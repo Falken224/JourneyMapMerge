@@ -57,16 +57,44 @@ JMMControllers.controller('MapViewController', ['$scope', '$routeParams', 'MapDa
     scope.dimension=0;
     scope.layerName="day";
     
-    function setImageURL()
+    var element = document.getElementById("jmmap");
+
+    var map = new google.maps.Map(element, {
+        backgroundColor: "#000000",
+        center: new google.maps.LatLng(0, 0),
+        zoom: 1,
+        zoomControl: false,
+        noClear: false,
+        mapTypeId: "JMM",
+        mapTypeControl: false,
+        streetViewControl: false
+    });
+
+    map.mapTypes.set("JMM", new google.maps.ImageMapType({
+        getTileUrl: function(coord, zoom) {
+            
+            setImageURL(coord.x,coord.y);
+            return scope.imageURL;
+        },
+        tileSize: new google.maps.Size(512, 512),
+        name: "JMMerge",
+        maxZoom: 1
+    }));
+
+    function setImageURL(x,y)
     {
         scope.imageURL="maps/"+scope.server+"/"+
                       scope.dimension+"/"+
                       scope.layerName+"/"+
-                      scope.shardx+","+scope.shardy+".png"
-        scope.upImageAvailable=checkForImage(scope.shardx,scope.shardy-1);
-        scope.downImageAvailable=checkForImage(scope.shardx,scope.shardy+1);
-        scope.leftImageAvailable=checkForImage(scope.shardx-1,scope.shardy);
-        scope.rightImageAvailable=checkForImage(scope.shardx+1,scope.shardy);
+                      x+","+y+".png"
+//        scope.imageURL="maps/"+scope.server+"/"+
+//                      scope.dimension+"/"+
+//                      scope.layerName+"/"+
+//                      scope.shardx+","+scope.shardy+".png"
+//        scope.upImageAvailable=checkForImage(scope.shardx,scope.shardy-1);
+//        scope.downImageAvailable=checkForImage(scope.shardx,scope.shardy+1);
+//        scope.leftImageAvailable=checkForImage(scope.shardx-1,scope.shardy);
+//        scope.rightImageAvailable=checkForImage(scope.shardx+1,scope.shardy);
     }
     
     function checkForImage(x,y){
@@ -77,31 +105,6 @@ JMMControllers.controller('MapViewController', ['$scope', '$routeParams', 'MapDa
         }
         return false;
     }
-    
-    scope.goUp = function()
-    {
-        scope.shardy--;
-        setImageURL();
-        scope.$apply();
-    }
-    scope.goDown = function()
-    {
-        scope.shardy++;
-        setImageURL();
-        scope.$apply();
-    }
-    scope.goLeft = function()
-    {
-        scope.shardx--;
-        setImageURL();
-        scope.$apply();
-    }
-    scope.goRight = function()
-    {
-        scope.shardx++;
-        setImageURL();
-        scope.$apply();
-    }
-    
+      
     scope.mapdata.$promise.then()
 }])

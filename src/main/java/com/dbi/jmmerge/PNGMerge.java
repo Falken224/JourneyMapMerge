@@ -5,6 +5,7 @@
  */
 package com.dbi.jmmerge;
 
+import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -28,5 +29,13 @@ public class PNGMerge {
     g.drawImage(bottom, 0, 0, null);
     g.drawImage(top, 0, 0, null);
     return merged;
-  }  
+  }
+  
+  public static BufferedImage blackBackgroundedImage(BufferedImage image) throws IOException
+  {
+    BufferedImage newImg = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
+    Graphics2D g = (Graphics2D)newImg.getGraphics();
+    g.drawImage(image, 0, 0, Color.BLACK,null);
+    return newImg;
+  }
 }

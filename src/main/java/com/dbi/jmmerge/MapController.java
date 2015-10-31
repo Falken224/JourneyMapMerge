@@ -7,6 +7,9 @@ package com.dbi.jmmerge;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -74,11 +77,18 @@ public class MapController {
                           @PathVariable("x") String x,
                           @PathVariable("y") String y) throws IOException
   {
-    File imageFile = buildFileByElements(new File(storageDir),server,"DIM"+dimension,level,x+","+y+".png");
+    File imageFile = buildFileByElements(new File(storageDir),server,"DIM"+dimension,level,x+","+y+"-opaque.png");
     if(!imageFile.exists())
     {
-      LOG.error("Could not find file: "+imageFile.getAbsolutePath());
-      throw new IllegalArgumentException("Could not find file:" +imageFile.getName());
+      File originalImageFile = buildFileByElements(new File(storageDir),server,"DIM"+dimension,level,x+","+y+".png");
+      
+      if(!originalImageFile.exists())
+      {
+        LOG.error("Could not find file: "+originalImageFile.getAbsolutePath());
+        throw new IllegalArgumentException("Could not find file:" +originalImageFile.getName());
+      }
+      
+      ImageIO.write(PNGMerge.blackBackgroundedImage(ImageIO.read(originalImageFile)), "png", imageFile);
     }
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     IOUtils.copy(new FileInputStream(imageFile), baos);
