@@ -5,6 +5,8 @@
  */
 package com.dbi.jmmerge;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -21,6 +23,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 import javax.imageio.ImageIO;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
@@ -44,15 +47,15 @@ import org.springframework.web.multipart.MultipartFile;
  * @author nnels2
  */
 @RestController
-public class MainController {
+public class MapController {
 
-  private Logger LOG = LoggerFactory.getLogger(MainController.class);
+  private Logger LOG = LoggerFactory.getLogger(MapController.class);
   
   @Value("#{systemProperties['jmmerge.data.dir'] ?: '/var/data/jmmerge'}")
   private String storageDir;
   
   @ExceptionHandler
-  public ResponseEntity<Map> handleException(Exception ex)
+  public ResponseEntity<Map> handleException(Exception ex, HttpServletRequest request)
   {
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.APPLICATION_JSON);
@@ -60,14 +63,42 @@ public class MainController {
     ResponseEntity<Map> ret = new ResponseEntity<Map>(msgs, headers, HttpStatus.INTERNAL_SERVER_ERROR);
     msgs.put("message", "An error occurred . . . contact your administrator for details.");
     msgs.put("error",ex.getMessage());
+    LOG.error("An error occurred handling a "+request.getMethod()+" to URL "+request.getRequestURL(),ex);
     return ret;
+  }
+  
+  @RequestMapping(value="/maps/{server}/{dimension}/{level}/{x},{y}.png", produces="image/png")
+  public byte[] grabImage(@PathVariable("server") String server,
+                          @PathVariable("dimension") String dimension,
+                          @PathVariable("level") String level,
+                          @PathVariable("x") String x,
+                          @PathVariable("y") String y) throws IOException
+  {
+    File imageFile = buildFileByElements(new File(storageDir),server,"DIM"+dimension,level,x+","+y+".png");
+    if(!imageFile.exists())
+    {
+      LOG.error("Could not find file: "+imageFile.getAbsolutePath());
+      throw new IllegalArgumentException("Could not find file:" +imageFile.getName());
+    }
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    IOUtils.copy(new FileInputStream(imageFile), baos);
+    return baos.toByteArray();
+  }
+  
+  private File buildFileByElements(File parent,String... elements)
+  {
+    for(String element : elements)
+      parent = new File(parent,element);
+    return parent;
   }
   
   @RequestMapping(value="/maps", method = RequestMethod.GET)
   public List listMaps()
   {
     List ret = new ArrayList();
-    for(File file : new File(storageDir).listFiles())
+    File mainDir = new File(storageDir);
+    if(!mainDir.exists()) return ret;
+    for(File file : mainDir.listFiles())
     {
       if(file.isDirectory())
       {
@@ -76,8 +107,57 @@ public class MainController {
     }
     return ret;
   }
+
+  @RequestMapping(value="maps/{server}/data", method = RequestMethod.GET)
+  public Map mapData(@PathVariable("server") String server) throws IOException
+  {
+    Map<String,Object> ret = new HashMap<String,Object>();
+
+    File serverDir = new File(storageDir,server);
+    if(!serverDir.exists() || !serverDir.isDirectory())
+    {
+      ret.put("message", "Server "+server+" does not exist.");
+      ret.put("error",true);
+      return ret;
+    }
+    
+    
+    ObjectMapper om = new ObjectMapper();
+    for(File dimension : serverDir.listFiles())
+    {
+      if(!dimension.isDirectory()) continue;
+      if(dimension.getName().equals("waypoints"))
+      {
+        List<Map> waypoints = new ArrayList<>();
+        ret.put("waypoints", waypoints);
+        for(File waypoint : dimension.listFiles())
+        {
+          waypoints.add(om.readValue(waypoint, new TypeReference<Map>(){}));
+        }
+      } else {
+        Map<String,Object> thisDimension = new HashMap<>();
+        Map<String,Object> dimensions = (Map)ret.computeIfAbsent("dimensions", k->new HashMap<String,Object>());
+        dimensions.put(dimension.getName(),thisDimension);
+        thisDimension.put("key",dimension.getName().replaceAll("DIM", ""));
+        for(File layer : dimension.listFiles())
+        {
+          if(!layer.isDirectory()) continue;
+          Map<String,Object> layers = (Map)thisDimension.computeIfAbsent("layers", k->new HashMap<String,Object>());
+          List<String> images = new ArrayList<String>();
+          ((Map)layers.computeIfAbsent(layer.getName(), k->new HashMap<String,Object>())).put("images", images);
+          for(File image : layer.listFiles())
+          {
+            if(!image.getName().endsWith(".png")) continue;
+            images.add(image.getName());
+          }
+        }
+      }
+    }
+    
+    return ret;
+  }
   
-  @RequestMapping(value="map/{server}", produces="application/zip")
+  @RequestMapping(value="maps/{server}", produces="application/zip")
   public byte[] downloadMap(@PathVariable("server") String server, HttpServletResponse response) throws IOException
   {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -130,8 +210,8 @@ public class MainController {
     }
   }
   
-  @RequestMapping(value="/maps", method = RequestMethod.POST)
-  public Map uploadMap(@RequestParam("server") String server,
+  @RequestMapping(value="/maps/{server}", method = RequestMethod.POST)
+  public Map uploadMap(@PathVariable("server") String server,
                        @RequestParam("file") MultipartFile file)
   {
     Map ret = new HashMap();

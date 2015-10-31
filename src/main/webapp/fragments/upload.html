@@ -1,0 +1,24 @@
+<div ng-controller="ServerListController">
+    <h2>Servers</h2>
+    <ul>
+        <li ng-repeat="server in servers">
+            {{server}}  <a href="maps/{{server}}">Download</a> <a href="#viewmap/{{server}}">View Map</a>
+        </li>
+    </ul>
+    File:
+    <input type="file" id="uploadfile"/> <br/>
+    Server:
+    <input type="text" ng-model="serverName"/> <br/>
+    </br>
+    <input type="button" ng-click="uploadMap()" value="Upload Map" />
+    <div ng-show="progressVisible">
+        <div class="percent">{{progress}}%</div>
+        <div class="progress-bar">
+            <div class="uploaded" ng-style="{'width': progress+'%'}"></div>
+        </div>
+    </div>
+    <div ng-show="hasMessage">
+        {{message}}
+    </div>
+
+</div>

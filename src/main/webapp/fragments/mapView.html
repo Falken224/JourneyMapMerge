@@ -1,0 +1,17 @@
+<div ng-controller="MapViewController">
+    <div>
+        Current View - Dimension: {{dimension}} - Level: {{layerName}} - Range : {{shardx*512}},{{shardy*512}}-{{(shardx+1)*512}},{{(shardy+1)*512}}
+        <br>Image URL is {{imageURL}}.
+    </div>
+    <div style="width:500; alignment-adjust: center" ng-show="upImageAvailable">
+        <input type="button" ng-click="goUp()" value="UP"/>
+    </div>
+    <div>
+        <span ng-show="leftImageAvailable"><input type="button" ng-click="goLeft()" value="LEFT"/></span>
+        <img src="{{imageURL}}" height="512" width="512"/>
+        <span ng-show="rightImageAvailable"><input type="button" ng-click="goRight()" value="RIGHT"/></span>
+    </div >
+    <div style="width:500; alignment-adjust: center" ng-show="downImageAvailable">
+        <input type="button" ng-click="goDown()" value="DOWN"/>
+    </div>
+</div>
